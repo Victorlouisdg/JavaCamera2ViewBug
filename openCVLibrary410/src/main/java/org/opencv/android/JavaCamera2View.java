@@ -272,10 +272,6 @@ public class JavaCamera2View extends CameraBridgeViewBase {
                     bestHeight = h;
                 }
             }
-
-            bestHeight = 480;
-            bestWidth = 720;
-
             Log.i(LOGTAG, "best size: " + bestWidth + "x" + bestHeight);
             assert(!(bestWidth == 0 || bestHeight == 0));
             if (mPreviewSize.getWidth() == bestWidth && mPreviewSize.getHeight() == bestHeight)

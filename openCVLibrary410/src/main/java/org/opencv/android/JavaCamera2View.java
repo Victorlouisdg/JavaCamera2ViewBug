@@ -1,5 +1,6 @@
 package org.opencv.android;
 
+import java.io.FileOutputStream;
 import java.nio.ByteBuffer;
 import java.util.Arrays;
 
@@ -17,6 +18,7 @@ import android.media.Image;
 import android.media.ImageReader;
 import android.os.Handler;
 import android.os.HandlerThread;
+import android.provider.ContactsContract;
 import android.util.AttributeSet;
 import android.util.Log;
 import android.view.Surface;
@@ -52,6 +54,8 @@ public class JavaCamera2View extends CameraBridgeViewBase {
 
     private HandlerThread mBackgroundThread;
     private Handler mBackgroundHandler;
+
+    private int counter = 0;
 
     public JavaCamera2View(Context context, int cameraId) {
         super(context, cameraId);
@@ -170,6 +174,8 @@ public class JavaCamera2View extends CameraBridgeViewBase {
 
             mImageReader = ImageReader.newInstance(w, h, mPreviewFormat, 2);
             mImageReader.setOnImageAvailableListener(new ImageReader.OnImageAvailableListener() {
+                private byte[] yuv_bytes = new byte[w*(2*h)];
+
                 @Override
                 public void onImageAvailable(ImageReader reader) {
                     Image image = reader.acquireLatestImage();
@@ -183,17 +189,91 @@ public class JavaCamera2View extends CameraBridgeViewBase {
 
                     // see also https://developer.android.com/reference/android/graphics/ImageFormat.html#YUV_420_888
                     // Y plane (0) non-interleaved => stride == 1; U/V plane interleaved => stride == 2
-                    assert (planes[0].getPixelStride() == 1);
-                    assert (planes[1].getPixelStride() == 2);
-                    assert (planes[2].getPixelStride() == 2);
+//                    assert (planes[0].getPixelStride() == 1);
+//                    assert (planes[1].getPixelStride() == 2);
+//                    assert (planes[2].getPixelStride() == 2);
 
-                    ByteBuffer y_plane = planes[0].getBuffer();
-                    ByteBuffer uv_plane = planes[1].getBuffer();
-                    Mat y_mat = new Mat(h, w, CvType.CV_8UC1, y_plane);
-                    Mat uv_mat = new Mat(h / 2, w / 2, CvType.CV_8UC2, uv_plane);
-                    JavaCamera2Frame tempFrame = new JavaCamera2Frame(y_mat, uv_mat, w, h);
-                    deliverAndDrawFrame(tempFrame);
-                    tempFrame.release();
+                    if (planes[1].getPixelStride() == 2) {
+                        ByteBuffer y_plane = planes[0].getBuffer();
+                        ByteBuffer uv_plane = planes[1].getBuffer();
+                        Mat y_mat = new Mat(h, w, CvType.CV_8UC1, y_plane);
+                        Mat uv_mat = new Mat(h / 2, w / 2, CvType.CV_8UC2, uv_plane);
+                        JavaCamera2Frame tempFrame = new JavaCamera2Frame(y_mat, uv_mat, w, h);
+                        deliverAndDrawFrame(tempFrame);
+                        tempFrame.release();
+                    } else {
+                        mPreviewFormat = ImageFormat.YV12;
+
+                        Log.d(LOGTAG, "w: " + w + " h: "+ h);
+
+                        ByteBuffer y_plane = planes[0].getBuffer();
+                        ByteBuffer u_plane = planes[1].getBuffer();
+                        ByteBuffer v_plane = planes[2].getBuffer();
+
+                        Log.d(LOGTAG, "image format: " + image.getFormat());
+                        Log.d(LOGTAG, "image reader format: " + reader.getImageFormat());
+                        Log.d(LOGTAG, "u_plane stride: " + planes[1].getPixelStride());
+                        Log.d(LOGTAG, "u_plane row stride: " + planes[1].getRowStride());
+                        int image_pixels = mFrameHeight * mFrameWidth;
+                        Log.d(LOGTAG, "pixels in image: " + image_pixels);
+                        Log.d(LOGTAG, "frame width: " + mFrameWidth);
+                        Log.d(LOGTAG, "frame height: " + mFrameHeight);
+                        Log.d(LOGTAG, "y length: " + y_plane.remaining());
+                        Log.d(LOGTAG, "u length: " + u_plane.remaining());
+                        Log.d(LOGTAG, "v length: " + v_plane.remaining());
+                        Log.d(LOGTAG, "y pos: " + y_plane.position());
+                        Log.d(LOGTAG, "u pos: " + u_plane.position());
+                        Log.d(LOGTAG, "v pos: " + v_plane.position());
+
+                        y_plane.get(yuv_bytes, 0, w*h);
+
+                        byte[] dummy = new byte[8];
+
+                        int offset = w*h;
+                        int padding = planes[1].getRowStride() - w/2;
+
+
+                        for (int i = 0; i < h/2; i++){
+                            u_plane.get(yuv_bytes, offset, w/2);
+                            if (i < h/2 - 1 && padding > 0) {
+                                u_plane.get(dummy, 0, padding);
+                            }
+                            offset += w/2;
+                        }
+                        for (int i = 0; i < h/2; i++){
+                            v_plane.get(yuv_bytes, offset, w/2);
+                            if (i < h/2 - 1 && padding > 0) {
+                                v_plane.get(dummy, 0, padding);
+                            }
+                            offset += w/2;
+                        }
+
+//                        u_plane.get(yuv_bytes, y_plane.remaining(), u_plane.remaining());
+//                        v_plane.get(yuv_bytes, y_plane.remaining() + u_plane.remaining(), v_plane.remaining());
+
+                        Mat yuv_mat = new Mat(h+h/2, w, CvType.CV_8UC1);
+                        yuv_mat.put(0, 0, yuv_bytes);
+
+                        counter++;
+                        if (counter == 30) {
+                            String filename = "yuv";
+                            FileOutputStream outputStream;
+
+                            try {
+                                outputStream = getContext().openFileOutput(filename, Context.MODE_PRIVATE);
+                                outputStream.write(yuv_bytes);
+                                outputStream.close();
+                            } catch (Exception e) {
+                                e.printStackTrace();
+                            }
+                        }
+
+                        JavaCamera2Frame tempFrame = new JavaCamera2Frame(yuv_mat, w, h);
+                        deliverAndDrawFrame(tempFrame);
+                        tempFrame.release();
+                    }
+
+
                     image.close();
                 }
             }, mBackgroundHandler);
@@ -282,6 +362,10 @@ public class JavaCamera2View extends CameraBridgeViewBase {
                     bestHeight = h;
                 }
             }
+
+//            bestWidth = 720;
+//            bestHeight = 480;
+
             Log.i(LOGTAG, "best size: " + bestWidth + "x" + bestHeight);
             assert(!(bestWidth == 0 || bestHeight == 0));
             if (mPreviewSize.getWidth() == bestWidth && mPreviewSize.getHeight() == bestHeight)
@@ -342,7 +426,7 @@ public class JavaCamera2View extends CameraBridgeViewBase {
             if (mPreviewFormat == ImageFormat.NV21)
                 Imgproc.cvtColor(mYuvFrameData, mRgba, Imgproc.COLOR_YUV2RGBA_NV21, 4);
             else if (mPreviewFormat == ImageFormat.YV12)
-                Imgproc.cvtColor(mYuvFrameData, mRgba, Imgproc.COLOR_YUV2RGB_I420, 4); // COLOR_YUV2RGBA_YV12 produces inverted colors
+                Imgproc.cvtColor(mYuvFrameData, mRgba, Imgproc.COLOR_YUV2RGBA_I420, 4); // COLOR_YUV2RGBA_YV12 produces inverted colors
             else if (mPreviewFormat == ImageFormat.YUV_420_888) {
                 assert (mUVFrameData != null);
                 Imgproc.cvtColorTwoPlane(mYuvFrameData, mUVFrameData, mRgba, Imgproc.COLOR_YUV2RGBA_NV21);

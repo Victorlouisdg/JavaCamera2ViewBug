@@ -338,21 +338,20 @@ public class JavaCamera2View extends CameraBridgeViewBase {
 
         @Override
         public Mat rgba() {
-            mRgba = new Mat();
-
             Image.Plane[] planes = mImage.getPlanes();
             int w = mImage.getWidth();
             int h = mImage.getHeight();
             int chromaPixelStride = planes[1].getPixelStride();
 
-            if (chromaPixelStride == 2) {
+
+            if (chromaPixelStride == 2) { // Chroma channels are interleaved
                 ByteBuffer y_plane = planes[0].getBuffer();
                 ByteBuffer uv_plane = planes[1].getBuffer();
                 Mat y_mat = new Mat(h, w, CvType.CV_8UC1, y_plane);
                 Mat uv_mat = new Mat(h / 2, w / 2, CvType.CV_8UC2, uv_plane);
                 Imgproc.cvtColorTwoPlane(y_mat, uv_mat, mRgba, Imgproc.COLOR_YUV2RGBA_NV21);
                 return mRgba;
-            } else {
+            } else { // Chroma channels are not interleaved
                 byte[] yuv_bytes = new byte[w*(h+h/2)];
                 ByteBuffer y_plane = planes[0].getBuffer();
                 ByteBuffer u_plane = planes[1].getBuffer();
@@ -360,16 +359,18 @@ public class JavaCamera2View extends CameraBridgeViewBase {
 
                 y_plane.get(yuv_bytes, 0, w*h);
 
-
                 int chromaRowStride = planes[1].getRowStride();
                 int chromaRowPadding = chromaRowStride - w/2;
 
                 int offset = w*h;
                 if (chromaRowPadding == 0){
+                    // When the row stride of the chroma channels equals their width, we can copy
+                    // the entire channels in one go
                     u_plane.get(yuv_bytes, offset, w*h/4);
                     offset += w*h/4;
                     v_plane.get(yuv_bytes, offset, w*h/4);
                 } else {
+                    // When not equal, we need to copy the channels row by row
                     for (int i = 0; i < h/2; i++){
                         u_plane.get(yuv_bytes, offset, w/2);
                         offset += w/2;
@@ -397,10 +398,13 @@ public class JavaCamera2View extends CameraBridgeViewBase {
         public JavaCamera2Frame(Image image) {
             super();
             mImage = image;
+            mRgba = new Mat();
+            mGray = new Mat();
         }
 
         public void release() {
             mRgba.release();
+            mGray.release();
         }
 
         private Image mImage;

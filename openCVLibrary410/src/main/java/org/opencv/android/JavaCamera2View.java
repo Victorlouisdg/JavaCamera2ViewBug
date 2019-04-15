@@ -1,5 +1,6 @@
 package org.opencv.android;
 
+import java.io.FileOutputStream;
 import java.nio.ByteBuffer;
 import java.util.Arrays;
 
@@ -17,6 +18,7 @@ import android.media.Image;
 import android.media.ImageReader;
 import android.os.Handler;
 import android.os.HandlerThread;
+import android.provider.ContactsContract;
 import android.util.AttributeSet;
 import android.util.Log;
 import android.view.Surface;
@@ -52,6 +54,8 @@ public class JavaCamera2View extends CameraBridgeViewBase {
 
     private HandlerThread mBackgroundThread;
     private Handler mBackgroundHandler;
+
+    private int counter = 0;
 
     public JavaCamera2View(Context context, int cameraId) {
         super(context, cameraId);
@@ -189,9 +193,49 @@ public class JavaCamera2View extends CameraBridgeViewBase {
 
                     ByteBuffer y_plane = planes[0].getBuffer();
                     ByteBuffer uv_plane = planes[1].getBuffer();
-                    Mat y_mat = new Mat(h, w, CvType.CV_8UC1, y_plane);
-                    Mat uv_mat = new Mat(h / 2, w / 2, CvType.CV_8UC2, uv_plane);
-                    JavaCamera2Frame tempFrame = new JavaCamera2Frame(y_mat, uv_mat, w, h);
+
+
+                    ByteBuffer y_plane2 = planes[0].getBuffer();
+                    ByteBuffer u_plane = planes[1].getBuffer();
+                    ByteBuffer v_plane = planes[2].getBuffer();
+
+                    int image_pixels = mFrameHeight * mFrameWidth;
+
+                    Log.d("VideoFileView", "pixels in image: " + image_pixels);
+                    Log.d("VideoFileView", "frame width: " + mFrameWidth);
+                    Log.d("VideoFileView", "frame height: " + mFrameHeight);
+                    Log.d("VideoFileView", "y length: " + y_plane2.remaining());
+                    Log.d("VideoFileView", "u length: " + u_plane.remaining());
+                    Log.d("VideoFileView", "v length: " + v_plane.remaining());
+
+                    byte[] yuv_bytes = new byte[image_pixels + image_pixels / 4 + image_pixels / 4];
+                    y_plane2.get(yuv_bytes, 0, image_pixels);
+                    u_plane.get(yuv_bytes, image_pixels, image_pixels / 4);
+                    v_plane.get(yuv_bytes, image_pixels + image_pixels / 4, image_pixels / 4);
+
+                    counter++;
+                    if (counter == 30) {
+                        String filename = "yuv";
+                        FileOutputStream outputStream;
+
+                        try {
+                            outputStream = getContext().openFileOutput(filename, Context.MODE_PRIVATE);
+                            outputStream.write(yuv_bytes);
+                            outputStream.close();
+                        } catch (Exception e) {
+                            e.printStackTrace();
+                        }
+                    }
+
+
+                    Mat yuv_mat = new Mat(mFrameHeight+mFrameHeight/2, mFrameWidth, CvType.CV_8UC1);
+                    yuv_mat.put(0, 0, yuv_bytes);
+
+//                    Mat y_mat = new Mat(h, w, CvType.CV_8UC1, y_plane);
+//                    Mat uv_mat = new Mat(h / 2, w / 2, CvType.CV_8UC2, uv_plane);
+//                    JavaCamera2Frame tempFrame = new JavaCamera2Frame(y_mat, uv_mat, w, h);
+                    mPreviewFormat = ImageFormat.YV12;
+                    JavaCamera2Frame tempFrame = new JavaCamera2Frame(yuv_mat, mFrameWidth, mFrameHeight);
                     deliverAndDrawFrame(tempFrame);
                     tempFrame.release();
                     image.close();
